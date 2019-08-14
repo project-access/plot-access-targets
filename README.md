@@ -2,7 +2,7 @@
 
 Make a cool plot showing the targets for Project ACCESS.
 
-# Usage
+## Usage
 
 0. Install required packages with `pip install -r requirements.txt'.
 1 (optional). Grab the latest `.csv` from [exoplanet.eu](exoplanet.eu).
