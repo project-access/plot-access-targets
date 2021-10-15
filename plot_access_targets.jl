@@ -4,33 +4,190 @@
 using Markdown
 using InteractiveUtils
 
+# ╔═╡ 5d98c61b-3547-458f-8672-2142ab9af424
+using Chain
+
+# ╔═╡ 42e37065-edf6-4655-9d79-cd4a50a864eb
+using DataFrameMacros
+
 # ╔═╡ fa6c24e0-2dc8-11ec-198e-0318e4603d37
-using CairoMakie, CSV, DataFrames, PlutoUI, PrettyTables
+begin
+	# Plotting
+	using AlgebraOfGraphics, CairoMakie
+	set_aog_theme!()
+	
+	# Tables
+	using CSV, DataFrames, PrettyTables
+	
+	# Web client/server
+	using HTTP
+	
+	# Widgets, table of contents, other goodies
+	using PlutoUI
+end
+
+# ╔═╡ 8ec24605-3e97-43ef-9dcc-989aed13bb96
+md"""
+# Survey plot
+
+In this notebook we will pull down data of known transiting exoplanets and place our ACCESS targets in this context.
+
+$(TableOfContents(title = "📖 Contents"))
+"""
+
+# ╔═╡ 1258eb09-0413-4e53-b1b2-4025de59c9cf
+md"""
+## 📦 Download data
+
+First we query the NASA Exoplanet Archive [TAP API](https://exoplanetarchive.ipac.caltech.edu/docs/TAP/usingTAP.html) to get the most up to date list of ground and space-based observations of transiting exoplanets:
+"""
+
+# ╔═╡ 70d30677-883c-42eb-b894-5991289039b6
+df_all = let
+		columns = [
+		"pl_name",
+		"disc_facility",
+		"tic_id",
+		"pl_radj",
+		"pl_bmassj",
+		"pl_eqt",
+		"st_rad",
+		"sy_jmag",
+	]
+	url = "https://exoplanetarchive.ipac.caltech.edu/TAP"
+	#cond = "tran_flag+=1+and+pl_eqt+<+1000+and+pl_rade+<+4"
+	cond = "tran_flag+=1"
+	query = "select+$(join(columns, ','))+from+pscomppars+where+$(cond)&format=csv"
+	request = HTTP.get("$(url)/sync?query=$(query)")
+	CSV.read(request.body, DataFrame)
+end
+
+# ╔═╡ 307c3e44-f66a-4134-9ac8-300edea176f4
+md"""
+There are currently **$(nrow(df_all))** targets found. Let's clean up the above table by dropping targets with missing column values:
+"""
+
+# ╔═╡ 9a2ec7d8-b0b1-4a91-8cf9-94bf19b95406
+df = dropmissing(df_all, [:pl_radj, :pl_eqt, :pl_bmassj, :st_rad, :sy_jmag])
+
+# ╔═╡ a88bdd58-e048-4f45-86c6-7df202e05169
+md"""
+Cool, we now have **$(nrow(df))** targets remaining.
+"""
+
+# ╔═╡ 86a2aa66-442b-415e-91d5-38084850fb1d
+md"""
+## 🇨🇱 ACCESS targets
+
+Next we load in our list of ACCESS targets, which we also share as a markdown table in this repo:
+
+!!! todo
+
+	Add link to targets.md
+"""
 
 # ╔═╡ b8db618a-411b-4642-996e-97ac1ba5fd13
-df = CSV.read("targets.csv", DataFrame)
+df_ACCESS_status = CSV.read("targets.csv", DataFrame)
 
 # ╔═╡ 66a514e1-7d4d-4af9-b8e1-4dca0a45588d
+# Save to file to keep in sync with repo version
 open("targets.md", "w") do f
-	pretty_table(f, df;
+	pretty_table(f, df_ACCESS_status;
 		tf = PrettyTables.tf_markdown,
 		nosubheader = true,
 	)
 end
 
+# ╔═╡ 1d4fdd0d-4bea-4909-822e-231f4afa1bcf
+md"""
+Now let's merge the archive data into our ACCESS table to make plotting everything more convenient, and split out each category:
+"""
+
+# ╔═╡ 3d7acddc-2033-4c4a-90dc-df9378403301
+df_ACCESS = @chain df begin
+	@subset :pl_name ∈ df_ACCESS_status.planet_name
+	innerjoin(df_ACCESS_status, _, on=:planet_name => :pl_name)
+end
+
+# ╔═╡ 0d81d22e-cead-4a21-93f7-ba07c3ede24c
+df_ACCESS_published = @subset df_ACCESS :published == 1
+
+# ╔═╡ 28fb4a1e-7b6b-4bc2-b27b-f91248ad8a51
+df_ACCESS_in_prep = @subset df_ACCESS :in_prep == 1
+
+# ╔═╡ 275bb8ea-5c4f-4782-9c6e-9d253f6f87ed
+df_ACCESS_underway = @subset df_ACCESS :obs_complete == 0
+
+# ╔═╡ 0064cd4d-dfa1-4f07-afc6-387b8d83e5bf
+df_ACCESS_collecting = @subset df_ACCESS :future == 1
+
+# ╔═╡ 77b9a47d-6e6e-4d11-8188-c76bbb6dd772
+md"""
+## 🖌️ Plot
+
+With all of the data now loaded, we create our plot:
+"""
+
+# ╔═╡ 22483133-b4dd-447b-a909-5c99014c17b3
+let
+	fig = Figure()
+	ax = Axis(fig[1, 1];
+		xlabel = "Equilibrium temperature (K)",
+		ylabel = "Planetary Radius (Rⱼ)",
+		limits = ((0.0, 3_000.0), (0.0, 2.2)),
+	)
+	ms = 25
+	
+	# All transiting exoplanets
+	scatter!(ax, df.pl_eqt, df.pl_radj, marker='○')
+	
+	# ACCESS targets
+	scatter!(ax, df_ACCESS_published.pl_eqt, df_ACCESS_published.pl_radj;
+		markersize = ms,
+		color = :green,
+	)
+	scatter!(ax, df_ACCESS_in_prep.pl_eqt, df_ACCESS_in_prep.pl_radj;
+		markersize = ms,
+		color = :blue,
+	)
+	scatter!(ax, df_ACCESS_underway.pl_eqt, df_ACCESS_underway.pl_radj;
+		markersize = ms,
+		color = :orange,
+	)
+	scatter!(ax, df_ACCESS_collecting.pl_eqt, df_ACCESS_collecting.pl_radj;
+		markersize = ms,
+		color = :grey,
+	)
+	
+	fig
+end
+
+# ╔═╡ c88dd755-0dfa-43b0-baef-83212fd3be70
+md"""
+## Packages
+"""
+
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
 [deps]
+AlgebraOfGraphics = "cbdf2221-f076-402e-a563-3d30da359d67"
 CSV = "336ed68f-0bac-5ca0-87d4-7b16caf5d00b"
 CairoMakie = "13f3f980-e62b-5c42-98c6-ff1f3baf88f0"
+Chain = "8be319e6-bccf-4806-a6f7-6fae938471bc"
+DataFrameMacros = "75880514-38bc-4a95-a458-c2aea5a3a702"
 DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
+HTTP = "cd3eb016-35fb-5094-929b-558a96fad6f3"
 PlutoUI = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
 PrettyTables = "08abe8d2-0d0c-5749-adfa-8a2ac140af0d"
 
 [compat]
+AlgebraOfGraphics = "~0.5.4"
 CSV = "~0.9.6"
 CairoMakie = "~0.6.5"
+Chain = "~0.4.8"
+DataFrameMacros = "~0.1.1"
 DataFrames = "~1.2.2"
+HTTP = "~0.9.16"
 PlutoUI = "~0.7.16"
 PrettyTables = "~1.2.2"
 """
@@ -55,6 +212,12 @@ deps = ["LinearAlgebra"]
 git-tree-sha1 = "84918055d15b3114ede17ac6a7182f68870c16f7"
 uuid = "79e6a3ab-5dfb-504d-930d-738a2a938a0e"
 version = "3.3.1"
+
+[[AlgebraOfGraphics]]
+deps = ["Colors", "Dates", "FileIO", "GLM", "GeoInterface", "GeometryBasics", "GridLayoutBase", "KernelDensity", "Loess", "Makie", "PlotUtils", "PooledArrays", "RelocatableFolders", "StatsBase", "StructArrays", "Tables"]
+git-tree-sha1 = "3746ac120f8b163dbd3bda0f36b6dec20c4f795a"
+uuid = "cbdf2221-f076-402e-a563-3d30da359d67"
+version = "0.5.4"
 
 [[Animations]]
 deps = ["Colors"]
@@ -124,6 +287,11 @@ git-tree-sha1 = "f2202b55d816427cd385a9a4f3ffb226bee80f99"
 uuid = "83423d85-b0ee-5818-9007-b63ccbeb887a"
 version = "1.16.1+0"
 
+[[Chain]]
+git-tree-sha1 = "cac464e71767e8a04ceee82a889ca56502795705"
+uuid = "8be319e6-bccf-4806-a6f7-6fae938471bc"
+version = "0.4.8"
+
 [[ChainRulesCore]]
 deps = ["Compat", "LinearAlgebra", "SparseArrays"]
 git-tree-sha1 = "2f294fae04aa5069a67964a3366e151e09ea7c09"
@@ -192,6 +360,12 @@ git-tree-sha1 = "cc70b17275652eb47bc9e5f81635981f13cea5c8"
 uuid = "9a962f9c-6df0-11e9-0e5d-c546b8b5ee8a"
 version = "1.9.0"
 
+[[DataFrameMacros]]
+deps = ["DataFrames"]
+git-tree-sha1 = "5cea6ee03472aebeb7bb375a862cbe0dc50b139f"
+uuid = "75880514-38bc-4a95-a458-c2aea5a3a702"
+version = "0.1.1"
+
 [[DataFrames]]
 deps = ["Compat", "DataAPI", "Future", "InvertedIndices", "IteratorInterfaceExtensions", "LinearAlgebra", "Markdown", "Missings", "PooledArrays", "PrettyTables", "Printf", "REPL", "Reexport", "SortingAlgorithms", "Statistics", "TableTraits", "Tables", "Unicode"]
 git-tree-sha1 = "d785f42445b63fc86caa08bb9a9351008be9b765"
@@ -216,6 +390,12 @@ uuid = "ade2ca70-3891-5945-98fb-dc099432e06a"
 [[DelimitedFiles]]
 deps = ["Mmap"]
 uuid = "8bb1440f-4735-579b-a4ab-409b98df4dab"
+
+[[Distances]]
+deps = ["LinearAlgebra", "Statistics", "StatsAPI"]
+git-tree-sha1 = "9f46deb4d4ee4494ffb5a40a27a2aced67bdd838"
+uuid = "b4f34e82-e78d-54a5-968a-f98e89d6e8f7"
+version = "0.10.4"
 
 [[Distributed]]
 deps = ["Random", "Serialization", "Sockets"]
@@ -343,6 +523,18 @@ version = "1.0.10+0"
 deps = ["Random"]
 uuid = "9fa8497b-333b-5362-9e8d-4d0656e87820"
 
+[[GLM]]
+deps = ["Distributions", "LinearAlgebra", "Printf", "Reexport", "SparseArrays", "SpecialFunctions", "Statistics", "StatsBase", "StatsFuns", "StatsModels"]
+git-tree-sha1 = "f564ce4af5e79bb88ff1f4488e64363487674278"
+uuid = "38e38edf-8417-5370-95a0-9cbb8c7f171a"
+version = "1.5.1"
+
+[[GeoInterface]]
+deps = ["RecipesBase"]
+git-tree-sha1 = "f63297cb6a2d2c403d18b3a3e0b7fcb01c0a3f40"
+uuid = "cf35fbd7-0cd7-5166-be24-54bfbe79505f"
+version = "0.5.6"
+
 [[GeometryBasics]]
 deps = ["EarCut_jll", "IterTools", "LinearAlgebra", "StaticArrays", "StructArrays", "Tables"]
 git-tree-sha1 = "58bcdf5ebc057b085e58d95c138725628dd7453c"
@@ -383,6 +575,12 @@ version = "0.6.1"
 git-tree-sha1 = "53bb909d1151e57e2484c3d1b53e19552b887fb2"
 uuid = "42e2da0e-8278-4e71-bc24-59509adca0fe"
 version = "1.0.2"
+
+[[HTTP]]
+deps = ["Base64", "Dates", "IniFile", "Logging", "MbedTLS", "NetworkOptions", "Sockets", "URIs"]
+git-tree-sha1 = "14eece7a3308b4d8be910e265c724a6ba51a9798"
+uuid = "cd3eb016-35fb-5094-929b-558a96fad6f3"
+version = "0.9.16"
 
 [[HarfBuzz_jll]]
 deps = ["Artifacts", "Cairo_jll", "Fontconfig_jll", "FreeType2_jll", "Glib_jll", "Graphite2_jll", "JLLWrappers", "Libdl", "Libffi_jll", "Pkg"]
@@ -439,6 +637,12 @@ version = "1.0.0"
 git-tree-sha1 = "f5fc07d4e706b84f72d54eedcc1c13d92fb0871c"
 uuid = "d25df0c9-e2be-5dd7-82c8-3ad0b3e990b9"
 version = "0.1.2"
+
+[[IniFile]]
+deps = ["Test"]
+git-tree-sha1 = "098e4d2c533924c921f9f9847274f2ad89e018b8"
+uuid = "83e8ac13-25f8-5344-8a64-a9f2b223428f"
+version = "0.5.0"
 
 [[InlineStrings]]
 deps = ["Parsers"]
@@ -592,6 +796,12 @@ version = "2.36.0+0"
 deps = ["Libdl"]
 uuid = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 
+[[Loess]]
+deps = ["Distances", "LinearAlgebra", "Statistics"]
+git-tree-sha1 = "b5254a86cf65944c68ed938e575f5c81d5dfe4cb"
+uuid = "4345ca2d-374a-55d4-8d30-97f9976e7612"
+version = "0.5.3"
+
 [[LogExpFunctions]]
 deps = ["ChainRulesCore", "DocStringExtensions", "IrrationalConstants", "LinearAlgebra"]
 git-tree-sha1 = "34dc30f868e368f8a17b728a1238f3fcda43931a"
@@ -638,6 +848,12 @@ deps = ["AbstractTrees", "Automa", "DataStructures", "FreeTypeAbstraction", "Geo
 git-tree-sha1 = "70e733037bbf02d691e78f95171a1fa08cdc6332"
 uuid = "0a4f8689-d25c-4efe-a92b-7142dfc1aa53"
 version = "0.2.1"
+
+[[MbedTLS]]
+deps = ["Dates", "MbedTLS_jll", "Random", "Sockets"]
+git-tree-sha1 = "1c38e51c3d08ef2278062ebceade0e46cefc96fe"
+uuid = "739be429-bea8-5141-9913-cc70e7f3736d"
+version = "1.0.3"
 
 [[MbedTLS_jll]]
 deps = ["Artifacts", "Libdl"]
@@ -854,6 +1070,11 @@ git-tree-sha1 = "01d341f502250e81f6fec0afe662aa861392a3aa"
 uuid = "c84ed2f1-dad5-54f0-aa8e-dbefe2724439"
 version = "0.4.2"
 
+[[RecipesBase]]
+git-tree-sha1 = "44a75aa7a527910ee3d1751d1f0e4148698add9e"
+uuid = "3cdcf5f2-1ef4-517c-9805-6587b60abb01"
+version = "1.1.2"
+
 [[Reexport]]
 git-tree-sha1 = "45e428421666073eab6f2da5c9d310d99bb12f9b"
 uuid = "189a3867-3050-52da-a836-e630ba90ab69"
@@ -915,6 +1136,11 @@ uuid = "9e88b42a-f829-5b0c-bbe9-9e923198166b"
 [[SharedArrays]]
 deps = ["Distributed", "Mmap", "Random", "Serialization"]
 uuid = "1a1011a3-84de-559e-8e89-a11a2f7dc383"
+
+[[ShiftedArrays]]
+git-tree-sha1 = "22395afdcf37d6709a5a0766cc4a5ca52cb85ea0"
+uuid = "1277b4bf-5013-50f5-be3d-901d8477a67a"
+version = "1.0.0"
 
 [[Showoff]]
 deps = ["Dates", "Grisu"]
@@ -986,6 +1212,12 @@ git-tree-sha1 = "95072ef1a22b057b1e80f73c2a89ad238ae4cfff"
 uuid = "4c63d2b9-4356-54db-8cca-17b64c39e42c"
 version = "0.9.12"
 
+[[StatsModels]]
+deps = ["DataAPI", "DataStructures", "LinearAlgebra", "Printf", "REPL", "ShiftedArrays", "SparseArrays", "StatsBase", "StatsFuns", "Tables"]
+git-tree-sha1 = "5cfe2d754634d9f11ae19e7b45dad3f8e4883f54"
+uuid = "3eaba693-59b7-5ba5-a881-562e759f1c8d"
+version = "0.6.27"
+
 [[StructArrays]]
 deps = ["Adapt", "DataAPI", "StaticArrays", "Tables"]
 git-tree-sha1 = "2ce41e0d042c60ecd131e9fb7154a3bfadbf50d3"
@@ -1037,6 +1269,11 @@ deps = ["Random", "Test"]
 git-tree-sha1 = "216b95ea110b5972db65aa90f88d8d89dcb8851c"
 uuid = "3bb67fe8-82b1-5028-8e26-92a6c54297fa"
 version = "0.9.6"
+
+[[URIs]]
+git-tree-sha1 = "97bbe755a53fe859669cd907f2d96aee8d2c1355"
+uuid = "5c2747f8-b7ea-4ff2-ba2e-563bfd36b1d4"
+version = "1.3.0"
 
 [[UUIDs]]
 deps = ["Random", "SHA"]
@@ -1179,8 +1416,26 @@ version = "3.5.0+0"
 """
 
 # ╔═╡ Cell order:
-# ╠═fa6c24e0-2dc8-11ec-198e-0318e4603d37
+# ╟─8ec24605-3e97-43ef-9dcc-989aed13bb96
+# ╟─1258eb09-0413-4e53-b1b2-4025de59c9cf
+# ╠═70d30677-883c-42eb-b894-5991289039b6
+# ╟─307c3e44-f66a-4134-9ac8-300edea176f4
+# ╠═9a2ec7d8-b0b1-4a91-8cf9-94bf19b95406
+# ╟─a88bdd58-e048-4f45-86c6-7df202e05169
+# ╟─86a2aa66-442b-415e-91d5-38084850fb1d
 # ╠═b8db618a-411b-4642-996e-97ac1ba5fd13
 # ╠═66a514e1-7d4d-4af9-b8e1-4dca0a45588d
+# ╟─1d4fdd0d-4bea-4909-822e-231f4afa1bcf
+# ╠═3d7acddc-2033-4c4a-90dc-df9378403301
+# ╠═0d81d22e-cead-4a21-93f7-ba07c3ede24c
+# ╠═28fb4a1e-7b6b-4bc2-b27b-f91248ad8a51
+# ╠═275bb8ea-5c4f-4782-9c6e-9d253f6f87ed
+# ╠═0064cd4d-dfa1-4f07-afc6-387b8d83e5bf
+# ╟─77b9a47d-6e6e-4d11-8188-c76bbb6dd772
+# ╠═22483133-b4dd-447b-a909-5c99014c17b3
+# ╠═5d98c61b-3547-458f-8672-2142ab9af424
+# ╠═42e37065-edf6-4655-9d79-cd4a50a864eb
+# ╠═c88dd755-0dfa-43b0-baef-83212fd3be70
+# ╠═fa6c24e0-2dc8-11ec-198e-0318e4603d37
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002
