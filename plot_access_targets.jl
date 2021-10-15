@@ -17,7 +17,7 @@ begin
 	set_aog_theme!()
 	
 	# Tables
-	using CSV, DataFrames, PrettyTables
+	using CSV, DataFrames, NaturalSort
 	
 	# Web client/server
 	using HTTP
@@ -79,24 +79,15 @@ Cool, we now have **$(nrow(df))** targets remaining.
 md"""
 ## 🇨🇱 ACCESS targets
 
-Next we load in our list of ACCESS targets, which we also share as a markdown table in this repo:
+Next we load in our list of ACCESS targets, which can also be viewed directly in the repo:
 
 !!! todo
 
-	Add link to targets.md
+	Add link to targets.csv
 """
 
 # ╔═╡ b8db618a-411b-4642-996e-97ac1ba5fd13
 df_ACCESS_status = CSV.read("targets.csv", DataFrame)
-
-# ╔═╡ 66a514e1-7d4d-4af9-b8e1-4dca0a45588d
-# Save to file to keep in sync with repo version
-open("targets.md", "w") do f
-	pretty_table(f, df_ACCESS_status;
-		tf = PrettyTables.tf_markdown,
-		nosubheader = true,
-	)
-end
 
 # ╔═╡ 1d4fdd0d-4bea-4909-822e-231f4afa1bcf
 md"""
@@ -107,6 +98,7 @@ Now let's merge the archive data into our ACCESS table to make plotting everythi
 df_ACCESS = @chain df begin
 	@subset :pl_name ∈ df_ACCESS_status.planet_name
 	innerjoin(df_ACCESS_status, _, on=:planet_name => :pl_name)
+	sort(:planet_name, lt=natural)
 end
 
 # ╔═╡ 0d81d22e-cead-4a21-93f7-ba07c3ede24c
@@ -116,7 +108,9 @@ df_ACCESS_published = @subset df_ACCESS :published == 1
 df_ACCESS_in_prep = @subset df_ACCESS :in_prep == 1
 
 # ╔═╡ 275bb8ea-5c4f-4782-9c6e-9d253f6f87ed
-df_ACCESS_underway = @subset df_ACCESS :obs_complete == 0
+df_ACCESS_underway = @subset df_ACCESS let
+	:in_prep == 0 && :published == 0 && :obs_complete == 1
+end
 
 # ╔═╡ 0064cd4d-dfa1-4f07-afc6-387b8d83e5bf
 df_ACCESS_collecting = @subset df_ACCESS :future == 1
@@ -127,6 +121,14 @@ md"""
 
 With all of the data now loaded, we create our plot:
 """
+
+# ╔═╡ c88dd755-0dfa-43b0-baef-83212fd3be70
+md"""
+## Notebook setup
+"""
+
+# ╔═╡ 3d210896-5787-481e-9b8c-95318225e676
+COLORS = Makie.wong_colors()
 
 # ╔═╡ 22483133-b4dd-447b-a909-5c99014c17b3
 let
@@ -139,33 +141,59 @@ let
 	ms = 25
 	
 	# All transiting exoplanets
-	scatter!(ax, df.pl_eqt, df.pl_radj, marker='○')
+	scatter!(ax, df.pl_eqt, df.pl_radj, color=:darkgrey, markersize=12, marker='○')
 	
 	# ACCESS targets
 	scatter!(ax, df_ACCESS_published.pl_eqt, df_ACCESS_published.pl_radj;
 		markersize = ms,
-		color = :green,
+		color = COLORS[3],
+		label = "Published",
 	)
 	scatter!(ax, df_ACCESS_in_prep.pl_eqt, df_ACCESS_in_prep.pl_radj;
 		markersize = ms,
-		color = :blue,
+		color = COLORS[1],
+		label = "In prep",
 	)
 	scatter!(ax, df_ACCESS_underway.pl_eqt, df_ACCESS_underway.pl_radj;
 		markersize = ms,
-		color = :orange,
+		color = COLORS[2],
+		label = "Analysis underway",
+		
 	)
 	scatter!(ax, df_ACCESS_collecting.pl_eqt, df_ACCESS_collecting.pl_radj;
 		markersize = ms,
 		color = :grey,
+		label = "Collecting data",
 	)
+	
+	axislegend(framevisible=true)
 	
 	fig
 end
 
-# ╔═╡ c88dd755-0dfa-43b0-baef-83212fd3be70
-md"""
-## Packages
-"""
+# ╔═╡ b74e9dce-cdc2-42c8-bed8-d855b642d312
+let
+	m = mapping(
+		:pl_eqt => "Equilibrium temperature (K)",
+		:pl_radj => "Planetary Radius (Rⱼ)",
+	)
+	
+	marker_published = visual(markersize=25, color=:red)
+	
+	plt = m * (
+		data(df) +
+		visual(markersize=25) * (
+			data(df_ACCESS_published) * visual(color=COLORS[3], label="hey") +
+			data(df_ACCESS_in_prep) * visual(color=COLORS[1]) +
+			data(df_ACCESS_underway) * visual(color=COLORS[2]) +
+			data(df_ACCESS_collecting) * visual(color=:grey)
+		)
+	)
+	
+	axislegend()
+	
+	draw(plt)
+end
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
@@ -177,8 +205,8 @@ Chain = "8be319e6-bccf-4806-a6f7-6fae938471bc"
 DataFrameMacros = "75880514-38bc-4a95-a458-c2aea5a3a702"
 DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
 HTTP = "cd3eb016-35fb-5094-929b-558a96fad6f3"
+NaturalSort = "c020b1a1-e9b0-503a-9c33-f039bfc54a85"
 PlutoUI = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
-PrettyTables = "08abe8d2-0d0c-5749-adfa-8a2ac140af0d"
 
 [compat]
 AlgebraOfGraphics = "~0.5.4"
@@ -188,8 +216,8 @@ Chain = "~0.4.8"
 DataFrameMacros = "~0.1.1"
 DataFrames = "~1.2.2"
 HTTP = "~0.9.16"
+NaturalSort = "~1.0.0"
 PlutoUI = "~0.7.16"
-PrettyTables = "~1.2.2"
 """
 
 # ╔═╡ 00000000-0000-0000-0000-000000000002
@@ -882,6 +910,11 @@ git-tree-sha1 = "bfe47e760d60b82b66b61d2d44128b62e3a369fb"
 uuid = "77ba4419-2d1f-58cd-9bb1-8ffee604a2e3"
 version = "0.3.5"
 
+[[NaturalSort]]
+git-tree-sha1 = "eda490d06b9f7c00752ee81cfa451efe55521e21"
+uuid = "c020b1a1-e9b0-503a-9c33-f039bfc54a85"
+version = "1.0.0"
+
 [[Netpbm]]
 deps = ["FileIO", "ImageCore"]
 git-tree-sha1 = "18efc06f6ec36a8b801b23f076e3c6ac7c3bf153"
@@ -1424,7 +1457,6 @@ version = "3.5.0+0"
 # ╟─a88bdd58-e048-4f45-86c6-7df202e05169
 # ╟─86a2aa66-442b-415e-91d5-38084850fb1d
 # ╠═b8db618a-411b-4642-996e-97ac1ba5fd13
-# ╠═66a514e1-7d4d-4af9-b8e1-4dca0a45588d
 # ╟─1d4fdd0d-4bea-4909-822e-231f4afa1bcf
 # ╠═3d7acddc-2033-4c4a-90dc-df9378403301
 # ╠═0d81d22e-cead-4a21-93f7-ba07c3ede24c
@@ -1433,9 +1465,11 @@ version = "3.5.0+0"
 # ╠═0064cd4d-dfa1-4f07-afc6-387b8d83e5bf
 # ╟─77b9a47d-6e6e-4d11-8188-c76bbb6dd772
 # ╠═22483133-b4dd-447b-a909-5c99014c17b3
+# ╠═b74e9dce-cdc2-42c8-bed8-d855b642d312
 # ╠═5d98c61b-3547-458f-8672-2142ab9af424
 # ╠═42e37065-edf6-4655-9d79-cd4a50a864eb
-# ╠═c88dd755-0dfa-43b0-baef-83212fd3be70
+# ╟─c88dd755-0dfa-43b0-baef-83212fd3be70
+# ╠═3d210896-5787-481e-9b8c-95318225e676
 # ╠═fa6c24e0-2dc8-11ec-198e-0318e4603d37
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002
