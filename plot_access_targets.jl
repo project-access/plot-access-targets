@@ -76,11 +76,7 @@ Cool, we now have **$(nrow(df))** targets remaining.
 md"""
 ## 🇨🇱 ACCESS targets
 
-Next we load in our list of ACCESS targets, which can also be viewed directly in the repo:
-
-!!! todo
-
-	Add link to targets.csv
+Next we load in our list of ACCESS targets, which can also be viewed directly in the [repo](https://github.com/project-access/plot-access-targets/blob/main/targets.csv):
 """
 
 # ╔═╡ b8db618a-411b-4642-996e-97ac1ba5fd13
@@ -135,6 +131,10 @@ md"""
 ## 🖌️ Plot
 
 With all of the data now loaded, we create our plot:
+
+!!! todo
+
+	Add transition temperatures
 """
 
 # ╔═╡ 88248c35-63e0-41a5-9f78-4da6f6e1da9f
