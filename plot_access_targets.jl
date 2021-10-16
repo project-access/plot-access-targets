@@ -194,6 +194,25 @@ let
 	)
 end
 
+# ╔═╡ 9f5c0153-68ec-4ca1-a8e4-527a2267ab73
+html"""
+<style>
+#launch_binder {
+	display: none;
+}
+body.disable_ui main {
+		max-width : 95%;
+	}
+@media screen and (min-width: 1081px) {
+	body.disable_ui main {
+		margin-left : 10px;
+		max-width : 72%;
+		align-self: flex-start;
+	}
+}
+</style>
+"""
+
 # ╔═╡ Cell order:
 # ╟─8ec24605-3e97-43ef-9dcc-989aed13bb96
 # ╟─1258eb09-0413-4e53-b1b2-4025de59c9cf
@@ -215,3 +234,4 @@ end
 # ╟─c88dd755-0dfa-43b0-baef-83212fd3be70
 # ╠═3d210896-5787-481e-9b8c-95318225e676
 # ╠═fa6c24e0-2dc8-11ec-198e-0318e4603d37
+# ╟─9f5c0153-68ec-4ca1-a8e4-527a2267ab73

@@ -10,3 +10,5 @@ Make a cool plot showing the targets for Project ACCESS.
 3. `python plot_access_targets.py`
 
 That's it!
+
+[Example Pluto notebook](https://project-access.space/plot-access-targets/plot_access_targets.jl.html)
