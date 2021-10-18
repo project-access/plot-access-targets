@@ -4,6 +4,15 @@
 using Markdown
 using InteractiveUtils
 
+# This Pluto notebook uses @bind for interactivity. When running this notebook outside of Pluto, the following 'mock version' of @bind gives bound variables a default value (instead of an error).
+macro bind(def, element)
+    quote
+        local el = $(esc(element))
+        global $(esc(def)) = Core.applicable(Base.get, el) ? Base.get(el) : missing
+        el
+    end
+end
+
 # ╔═╡ fa6c24e0-2dc8-11ec-198e-0318e4603d37
 begin
 	import Pkg
@@ -41,7 +50,7 @@ First we query the NASA Exoplanet Archive [TAP API](https://exoplanetarchive.ipa
 
 # ╔═╡ 70d30677-883c-42eb-b894-5991289039b6
 df_all = let
-		columns = [
+	columns = [
 		"pl_name",
 		"disc_facility",
 		"tic_id",
@@ -93,13 +102,8 @@ begin
 	cv = categorical(cats; levels=cats)
 end
 
-# ╔═╡ e27aba11-58a1-487b-8715-32b5e0b749b9
-md"""
-!!! note
-	We use `CategoricalArrays.jl` to encode each category in a more memory efficient format than regular `Strings`
-"""
-
 # ╔═╡ efcef650-78df-40b7-97a1-93c26ac007be
+# Return ACCESS target status based on current flag values
 function status(published, in_prep, obs_complete)
 	if published == 1
 		return cv[1]
@@ -112,11 +116,16 @@ function status(published, in_prep, obs_complete)
 	end
 end
 
+# ╔═╡ e27aba11-58a1-487b-8715-32b5e0b749b9
+md"""
+!!! note
+	We use `CategoricalArrays.jl` to encode each category in a more memory efficient format than regular `Strings`
+"""
+
 # ╔═╡ 3d7acddc-2033-4c4a-90dc-df9378403301
 df_ACCESS = @chain df begin
 	@subset :pl_name ∈ df_ACCESS_status.planet_name
 	leftjoin(df_ACCESS_status, _, on=:planet_name => :pl_name)
-	# Add `status` column
 	@transform :status = status(:published, :in_prep, :obs_complete)
 	sort(:planet_name, lt=natural)
 end
@@ -131,11 +140,22 @@ md"""
 ## 🖌️ Plot
 
 With all of the data now loaded, we create our plot:
-
-!!! todo
-
-	Add transition temperatures
 """
+
+# ╔═╡ 76f1cf69-8834-4f1d-b79a-56cb654c6c0e
+md"""
+Show transition temperatures? $(@bind show_species CheckBox())
+"""
+
+# ╔═╡ 21a6b539-c8dd-4d82-847d-7a94511ea56e
+species = (
+	"H₂O" => (273.15, (:center, :center)),
+	"NH₃" => (583.0, (:right, :center)),
+	"N₂" => (583.0, (:left, :baseline)),
+	"CH₄" => (1000.0, (:right, :center)),
+	"CO" => (1000.0, (:left, :baseline)),
+	"MnS" => (1350.0, (:center, :center)),
+)
 
 # ╔═╡ 88248c35-63e0-41a5-9f78-4da6f6e1da9f
 md"""
@@ -145,25 +165,25 @@ This plot was made using `AlgebraOfGraphics.jl`, an [inventive take](http://juli
 	For comparison, here are the commands that would produce a similar plot in vanilla `Makie.jl`, the plotting library that powers the `AlgrebraOfGraphics.jl` framework:
 
 	```julia
-		fig = Figure()
-		ax = Axis(fig[1, 1];
-			xlabel = "Equilibrium temperature (K)",
-			ylabel = "Planetary Radius (Rⱼ)",
-			limits = ((0.0, 3_000.0), (0.0, 2.2)),
-		)
+	fig = Figure()
+	ax = Axis(fig[1, 1];
+		xlabel = "Equilibrium temperature (K)",
+		ylabel = "Planetary Radius (Rⱼ)",
+		limits = ((0.0, 3_000.0), (0.0, 2.2)),
+	)
 
-		# All targets
-		scatter!(ax, df.pl_eqt, df.pl_radj, marker='○', color=(:darkgrey))
+	# All targets
+	scatter!(ax, df.pl_eqt, df.pl_radj, marker='○', color=(:darkgrey))
 
-		# ACCESS targets
-		gdf = groupby(df_ACCESS, :status)
-		for (k, df) ∈ pairs(gdf)
-			scatter!(ax, df.pl_eqt, df.pl_radj, markersize=25, label=string(k.status))
-		end
+	# ACCESS targets
+	gdf = groupby(df_ACCESS, :status)
+	for (k, df) ∈ pairs(gdf)
+		scatter!(ax, df.pl_eqt, df.pl_radj, markersize=25, label=string(k.status))
+	end
 
-		Legend(fig[1, 2], ax, "Status")
+	Legend(fig[1, 2], ax, "Status")
 
-		fig
+	fig
 	```
 
 	A lot of nice things like automatic legend placement and grouping are already done for us in `AlgebraOfGraphics.jl`. Repetitively accessing `pl_eqt` and `pl_radj` was also able to be nicely factored out, leading to terser, more maintable and extensible code.
@@ -184,14 +204,58 @@ let
 		:pl_radj => "Planetary Radius (Rⱼ)",
 	)
 	marker = visual(marker='○', color=(:darkgrey))
+	marker_ACCESS = visual(strokewidth=1, markersize=25)
 	m_ACCESS = mapping(color = :status => "Status")
 	
 	# Plot all targets and ACCESS targets
-	plt = m * (data(df)*marker + data(df_ACCESS)*m_ACCESS*visual(markersize=25))
-	draw(plt;
+	plt = m * (data(df)*marker + data(df_ACCESS)*m_ACCESS*marker_ACCESS)
+	fig = draw(plt;
 		axis = (limits=(limits = ((0.0, 3_000.0), (0.0, 2.2))),),
 		palettes = (color=[COLORS[3], COLORS[1], COLORS[2], :grey],),
+	)	
+	
+	
+	if show_species
+		# Condensation temps
+		ax = Axis(fig.figure[1, 1])
+		hidedecorations!(ax)
+		for (i, (name, (T, align))) in enumerate(species)
+			vlines!(ax, T, color=:darkgrey, linewidth=1.0, linestyle=:dash)
+			text!(ax, name, position=(T, 16.0 + i), align=align, textsize=16)
+		end
+		vspan!(ax, 1625.0, 1875.0, color=(:darkgrey, 0.25))
+		text!(ax, "Silicates/Metal-oxides";
+			position = (0.5*(1875.0+1625.0), 22.0),
+			textsize = 16,
+		)
+	end
+	
+	fig
+end
+
+# ╔═╡ 46130f71-b691-4a87-a3c8-f13be47b330e
+let
+	fig = Figure()
+	ax = Axis(fig[1, 1];
+		xlabel = "Equilibrium temperature (K)",
+		ylabel = "Planetary Radius (Rⱼ)",
+		limits = ((0.0, 3_000.0), (0.0, 2.2)),
+		palette = (color=[COLORS[3], COLORS[1], COLORS[2], :grey],),
 	)
+
+	# All targets
+	scatter!(ax, df.pl_eqt, df.pl_radj, marker='○', color=(:darkgrey))
+
+	# ACCESS targets
+	gdf = groupby(df_ACCESS, :status)
+	for (k, df) ∈ pairs(gdf)
+		scatter!(ax, df.pl_eqt, df.pl_radj, markersize=25, label=string(k.status),
+		strokewidth=1)
+	end
+
+	Legend(fig[1, 2], ax, "Status")
+
+	fig
 end
 
 # ╔═╡ 9f5c0153-68ec-4ca1-a8e4-527a2267ab73
@@ -224,13 +288,16 @@ body.disable_ui main {
 # ╠═b8db618a-411b-4642-996e-97ac1ba5fd13
 # ╟─1d4fdd0d-4bea-4909-822e-231f4afa1bcf
 # ╠═7455d1cf-cd40-4ebd-8517-ca534e6c37de
+# ╠═efcef650-78df-40b7-97a1-93c26ac007be
 # ╟─e27aba11-58a1-487b-8715-32b5e0b749b9
 # ╠═3d7acddc-2033-4c4a-90dc-df9378403301
-# ╠═efcef650-78df-40b7-97a1-93c26ac007be
 # ╟─d62c8f1d-3cc3-4ad4-a42a-e957194c40b1
 # ╟─77b9a47d-6e6e-4d11-8188-c76bbb6dd772
-# ╠═b74e9dce-cdc2-42c8-bed8-d855b642d312
+# ╟─76f1cf69-8834-4f1d-b79a-56cb654c6c0e
+# ╟─b74e9dce-cdc2-42c8-bed8-d855b642d312
+# ╠═21a6b539-c8dd-4d82-847d-7a94511ea56e
 # ╟─88248c35-63e0-41a5-9f78-4da6f6e1da9f
+# ╠═46130f71-b691-4a87-a3c8-f13be47b330e
 # ╟─c88dd755-0dfa-43b0-baef-83212fd3be70
 # ╠═3d210896-5787-481e-9b8c-95318225e676
 # ╠═fa6c24e0-2dc8-11ec-198e-0318e4603d37
